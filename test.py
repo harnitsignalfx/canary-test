@@ -6,6 +6,7 @@ import random
 import uuid
 import aiofiles
 import pdb
+import sys
 
 '''
 4 type of events
@@ -27,13 +28,13 @@ lastTime = 0
 loop = asyncio.get_event_loop()
 
 if 'SF_TOKEN' in os.environ:
-    print os.environ['SF_TOKEN']
+    print (os.environ['SF_TOKEN'])
 else:
-    print 'SF_TOKEN env variable not found'
+    print ('SF_TOKEN env variable not found')
     sys.exit(0)
 
-
-sfx = signalfx.SignalFx().ingest(os.environ['SF_TOKEN'])
+#sfx = signalfx.SignalFx().ingest(os.environ['SF_TOKEN'])
+sfx = signalfx.SignalFx().ingest('wta2iie_kkg2S7ocivcN6g')
 
 async def get_modTime():
     global lastTime
@@ -86,10 +87,12 @@ async def printList():
         metricName = 'documents.processed'
         global modifiedNames
         global usermap
-        timestamp = int(round(time.time())*1000)
+        timestamp = int(round(time.time())*1000)+1
+
         while(True):
             #user = "harnit.singh@signalfx.com"
-            timestamp += 1000
+            startTime = int(round(time.time()*1000))
+            
             sendList = []
             userData = {}
             print ('usermap-',usermap)
@@ -122,9 +125,13 @@ async def printList():
                   #pdb.set_trace()
                   if modifiedNames[user] == 'bcanary':
                     value1 = random.randint(200,300)
+                    dim1['canary']='true'
                     print ('in bcanary',usermap[user])
                   elif modifiedNames[user] == 'rollback':
                     value1 = random.randint(900,1000)
+                  elif modifiedNames[user] == 'gcanary':
+                    dim1['canary']='true'
+                    print ('in gcanary',usermap[user])
 
               dim1['containerId']=usermap[user][0]
               dim1['user']=user
@@ -152,11 +159,19 @@ async def printList():
               sendList.append(userData2)
               sendList.append(userData3)
 
-
             sfx.send(counters=sendList)
-            print ('sending..',sendList)
+            #print ('sending..',sendList)
+            endTime = int(round(time.time()*1000))
+            delta = endTime-startTime
+            print ('delta - ',delta)
+            timestamp += 1000
 
-            await asyncio.sleep(1)
+            if delta > 1000:
+              await asyncio.sleep(1)
+            else:
+              sleepTime = ((1000-delta)/1000)
+              print('sleeping for ..',sleepTime)
+              await asyncio.sleep(sleepTime)
     except:
         sfx.stop()
     finally:
