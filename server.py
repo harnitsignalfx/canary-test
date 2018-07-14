@@ -15,66 +15,84 @@ else:
 
 filepath = './userlist'
 
-@app.route('/hook', methods=['POST'])
-def login():
-    
+@app.route('/health', methods=['POST'])
+def healthCheck():
+    '''Sends dummy event'''
+
     headers = {'X-SF-TOKEN' : os.environ['SF_TOKEN'],'Content-Type' : 'application/json'}
-    data = json.loads(request.data)
-    if 'event' in data:
-        if "start" not in data['event']:
-            send_event = {}
-            send_event['category']='USER_DEFINED'
-            send_event['eventType']='code_build_'+data['event']
-            custom_data={'buildName':data['buildName'],'buildUrl':data['buildUrl']}
-            send_event['properties']=custom_data
-            send_event = [send_event]
-            print (json.dumps(send_event,indent=2))
-            r = requests.post('https://ingest.signalfx.com/v2/event',headers=headers,data=json.dumps(send_event))
-            return(r.text)
-    elif 'pusher' in data:
-        send_event = {}
-        send_event['category']='USER_DEFINED'
-        send_event['eventType']='code_push'
-        custom_data={'Pusher':data['pusher']['email']}
-        send_event['properties']=custom_data
-        send_event = [send_event]
-        print (json.dumps(send_event,indent=2))   
-        r = requests.post('https://ingest.signalfx.com/v2/event',headers=headers,data=json.dumps(send_event))
-        return(r.text)
-    else:
-        print (data)
+    
+    send_event = {}
+    send_event['category']='USER_DEFINED'
+    send_event['eventType']='Health Check'
+    send_event['properties']={'status ':'OK'}
+    send_event = [send_event]
+    print (json.dumps(send_event,indent=2))   
+    r = requests.post('https://ingest.signalfx.com/v2/event',headers=headers,data=json.dumps(send_event))
+    print(r.text)
+
     return "OK"
 
 @app.route('/write', methods=['POST'])
 def write():
     
-    #headers = {'X-SF-TOKEN' : os.environ['SF_TOKEN'],'Content-Type' : 'application/json'}
+    headers = {'X-SF-TOKEN' : os.environ['SF_TOKEN'],'Content-Type' : 'application/json'}
     data = json.loads(request.data.decode('utf-8'))
     if ('messageBody' in data) and ('status' in data):
       if not (data['status'].lower()=='anomalous'):  
         # ..Do nothing.. the alert is back to normal
         return "OK"
 
+      if not data['messageBody']:
+        print('Empty message Body, returning..')
+        return "OK"  
+        
       body = data['messageBody'].split(" ")
       if 'Rollback' == body[1]:
         username = body[3]
         writeFile.modifyFile(filepath,username,'rollback')
+
+        send_event = {}
+        send_event['category']='USER_DEFINED'
+        send_event['eventType']='Automated Rollback initiated'
+        send_event['properties']={'user':username}
+        send_event = [send_event]
+        print (json.dumps(send_event,indent=2))   
+        r = requests.post('https://ingest.signalfx.com/v2/event',headers=headers,data=json.dumps(send_event))
+        print(r.text)
+
       elif 'Deployment' == body[1]:
         username = body[3]
         writeFile.modifyFile(filepath,username,'deploy')
+
+        send_event = {}
+        send_event['category']='USER_DEFINED'
+        send_event['eventType']='Automated Deployment initiated'
+        send_event['properties']={'user':username}
+        send_event = [send_event]
+        print (json.dumps(send_event,indent=2))   
+        r = requests.post('https://ingest.signalfx.com/v2/event',headers=headers,data=json.dumps(send_event))
+        print(r.text)
     
     return "OK"
 
 @app.route('/write/<string:username>/<int:batchsize>', methods=['POST'])
 def writeSize(username,batchsize):
     
-    #headers = {'X-SF-TOKEN' : os.environ['SF_TOKEN'],'Content-Type' : 'application/json'}
-
+    headers = {'X-SF-TOKEN' : os.environ['SF_TOKEN'],'Content-Type' : 'application/json'}
     print('Received - ',username,' ',batchsize)
     if batchsize > 30000:
       writeFile.modifyFile(filepath,username,'bcanary')
     else:
       writeFile.modifyFile(filepath,username,'gcanary')
+
+    send_event = {}
+    send_event['category']='USER_DEFINED'
+    send_event['eventType']='canary push event'
+    send_event['properties']={'user':username}
+    send_event = [send_event]
+    print (json.dumps(send_event,indent=2))   
+    r = requests.post('https://ingest.signalfx.com/v2/event',headers=headers,data=json.dumps(send_event))
+    return(r.text)
 
     return "OK"    
 

@@ -19,13 +19,13 @@ import sys
 
 usermap = {}
 
-modifiedNames = {}
-
 filepath = './userlist'
 
 lastTime = 0
 
 loop = asyncio.get_event_loop()
+
+globalDeployTypes = {}
 
 if 'SF_TOKEN' in os.environ:
     print (os.environ['SF_TOKEN'])
@@ -33,11 +33,11 @@ else:
     print ('SF_TOKEN env variable not found')
     sys.exit(0)
 
-#sfx = signalfx.SignalFx().ingest(os.environ['SF_TOKEN'])
-sfx = signalfx.SignalFx().ingest('wta2iie_kkg2S7ocivcN6g')
+sfx = signalfx.SignalFx().ingest(os.environ['SF_TOKEN'])
 
 async def get_modTime():
     global lastTime
+    global globalDeployTypes
 
     while True:
         newTime = os.path.getmtime(filepath)
@@ -48,21 +48,27 @@ async def get_modTime():
             lines = []
             async with aiofiles.open(filepath, mode='r') as f:
                 lines = await f.readlines()
-            d = {}
+            newDeployTypes = {}
+
             #for line in lines:
             #  print('line is:',line)
-            d = dict([line.split() for line in lines])
+            newDeployTypes = dict([line.split() for line in lines])
 
-            print ('old dict is:',d)
-            global modifiedNames
+            print ('new Deploy Types:',newDeployTypes)
+
+            if not globalDeployTypes:
+              globalDeployTypes = newDeployTypes
+
+            modifiedNames = {}
             global usermap
 
-            for key,value in d.items():
+            for key,value in newDeployTypes.items():
                 if key not in usermap:
                   usermap[key]=[str(uuid.uuid4())[:13].replace('-',''),str(uuid.uuid4())[:13].replace('-',''),str(uuid.uuid4())[:13].replace('-','')]
                 else:
-                  if value != 'same':
+                  if value != globalDeployTypes[key]:
                     modifiedNames[key] = value
+                    globalDeployTypes[key] = value
 
                     if value == 'bcanary':
                       print ('in bcanary file check',usermap[key])
@@ -75,18 +81,21 @@ async def get_modTime():
                       usermap[key][1] = str(uuid.uuid4())[:13].replace('-','')
                       usermap[key][2] = str(uuid.uuid4())[:13].replace('-','')
 
-            print ('usermap:',usermap)
+                  print ('Modified Names:',modifiedNames)
+                  modifiedNames = {}
 
-            print ('Modified Names:',modifiedNames)
+            #print ('usermap:',usermap)
+
+            #print ('Modified Names:',modifiedNames)
 
         await asyncio.sleep(1)
 
 
 async def printList():
     try:
-        metricName = 'documents.processed'
-        global modifiedNames
+        metricName = 'requests.processed'
         global usermap
+        global globalDeployTypes
         timestamp = int(round(time.time())*1000)+1
 
         while(True):
@@ -95,7 +104,7 @@ async def printList():
             
             sendList = []
             userData = {}
-            print ('usermap-',usermap)
+            #print ('usermap-',usermap)
 
             while not usermap:
                 print ('sleeping for 1 sec..')
@@ -113,25 +122,18 @@ async def printList():
               value2 = random.randint(900,1000)
               value3 = random.randint(900,1000)
 
-
-              print('user',user)
-              print('data',data)
-
-
-              if modifiedNames:
-
-                if user in modifiedNames:
-                  #global value1
-                  #pdb.set_trace()
-                  if modifiedNames[user] == 'bcanary':
-                    value1 = random.randint(200,300)
-                    dim1['canary']='true'
-                    print ('in bcanary',usermap[user])
-                  elif modifiedNames[user] == 'rollback':
-                    value1 = random.randint(900,1000)
-                  elif modifiedNames[user] == 'gcanary':
-                    dim1['canary']='true'
-                    print ('in gcanary',usermap[user])
+              if user in globalDeployTypes:
+                #global value1
+                #pdb.set_trace()
+                if globalDeployTypes[user] == 'bcanary':
+                  value1 = random.randint(200,300)
+                  dim1['canary']='true'
+                  print ('in bad canary for ',user)
+                elif globalDeployTypes[user] == 'rollback':
+                  value1 = random.randint(900,1000)
+                elif globalDeployTypes[user] == 'gcanary':
+                  dim1['canary']='true'
+                  print ('in good canary for ',user)
 
               dim1['containerId']=usermap[user][0]
               dim1['user']=user
@@ -142,35 +144,36 @@ async def printList():
 
               userData1['metric'] = metricName
               userData1['value'] = value1
-              userData1['timestamp'] = timestamp
+              #userData1['timestamp'] = timestamp
               userData1['dimensions'] = dim1
 
               userData2['metric'] = metricName
               userData2['value'] = value2
-              userData2['timestamp'] = timestamp
+              #userData2['timestamp'] = timestamp
               userData2['dimensions'] = dim2
 
               userData3['metric'] = metricName
               userData3['value'] = value3
-              userData3['timestamp'] = timestamp
+              #userData3['timestamp'] = timestamp
               userData3['dimensions'] = dim3
 
               sendList.append(userData1)
               sendList.append(userData2)
               sendList.append(userData3)
 
+            
             sfx.send(counters=sendList)
             #print ('sending..',sendList)
             endTime = int(round(time.time()*1000))
             delta = endTime-startTime
-            print ('delta - ',delta)
+            #print ('delta - ',delta)
             timestamp += 1000
 
             if delta > 1000:
               await asyncio.sleep(1)
             else:
               sleepTime = ((1000-delta)/1000)
-              print('sleeping for ..',sleepTime)
+              #print('sleeping for ..',sleepTime)
               await asyncio.sleep(sleepTime)
     except:
         sfx.stop()
